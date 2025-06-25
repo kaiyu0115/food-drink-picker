@@ -130,9 +130,25 @@
 
 
     <script>
+        /*
+         * ===================================================================
+         * Google Maps API 設定說明
+         * ===================================================================
+         * 1. 錯誤處理：此版本已更新為使用 Google 最新的 Places API (New) 
+         * 來解決舊版 API 停用的問題。
+         *
+         * 2. 啟用 API：請前往您的 Google Cloud Console，搜尋並啟用 
+         * "Places API (New)"。
+         *
+         * 3. 設定 HTTP 參照位址：為了讓 API 金鑰能在您的網頁上運作，您必須
+         * 設定其安全限制。請在 API 金鑰的設定頁面中，將「應用程式限制」
+         * 設為「HTTP 參照位址」，並加入您託管此網頁的網址
+         * (例如：http://127.0.0.1:5500/ 或 https://your-domain.com/*)。
+         * ===================================================================
+         */
         // --- Google Maps API 金鑰設定 ---
         // 請將 'YOUR_GOOGLE_MAPS_API_KEY_HERE' 替換成您自己的 Google Maps API 金鑰
-        const apiKey = 'AIzaSyBLUs7HoxweZ69_ed1gsCbXI_31h6RZ_QM';
+        const apiKey = 'AIzaSyCuebNNex1DKShABA6_aTHIjCyHtueVLkM';
         // ---------------------------------
 
 
@@ -312,19 +328,47 @@
                 const { latitude, longitude } = position.coords;
                 fetchStatus.textContent = '正在尋找附近的餐廳...';
                 
-                const url = `https://maps.googleapis.com/maps/api/place/nearbysearch/json?location=${latitude},${longitude}&radius=500&type=restaurant&language=zh-TW&key=${apiKey}`;
-                const proxyUrl = `https://api.allorigins.win/get?url=${encodeURIComponent(url)}`;
+                const url = `https://places.googleapis.com/v1/places:searchNearby`;
+                
+                const requestBody = {
+                    includedTypes: ["restaurant"],
+                    maxResultCount: 10,
+                    locationRestriction: {
+                        circle: {
+                            center: {
+                                latitude: latitude,
+                                longitude: longitude,
+                            },
+                            radius: 500.0
+                        }
+                    },
+                    languageCode: "zh-TW"
+                };
 
                 try {
-                    const response = await fetch(proxyUrl);
-                    const data = await response.json();
-                    const placesData = JSON.parse(data.contents);
+                    const response = await fetch(url, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'X-Goog-Api-Key': apiKey,
+                            'X-Goog-Field-Mask': 'places.displayName' 
+                        },
+                        body: JSON.stringify(requestBody)
+                    });
 
-                    if (placesData.status === 'OK') {
-                        const newOptions = placesData.results.map(place => place.name);
+                    if (!response.ok) {
+                        const errorData = await response.json();
+                        const errorMessage = errorData.error?.message || `HTTP 錯誤: ${response.status}`;
+                        throw new Error(errorMessage);
+                    }
+                    
+                    const data = await response.json();
+
+                    if (data.places && data.places.length > 0) {
+                        const newOptions = data.places.map(place => place.displayName);
                         let addedCount = 0;
                         newOptions.forEach(opt => {
-                            if (!options.includes(opt)) {
+                            if (opt && !options.includes(opt)) {
                                 options.push(opt);
                                 addedCount++;
                             }
@@ -332,13 +376,21 @@
                         updateWheel();
                         fetchStatus.textContent = `成功加入 ${addedCount} 間餐廳！`;
                     } else {
-                        fetchStatus.textContent = `錯誤 (${placesData.status})：${placesData.error_message || '請檢查 API 金鑰設定'}`;
+                        fetchStatus.textContent = '附近找不到餐廳，或已全部加入。';
                     }
                 } catch (error) {
                     console.error('Fetch error:', error);
-                    fetchStatus.textContent = '發生網路錯誤，請稍後再試。';
+                    let displayError = '發生網路錯誤，請稍後再試。';
+                    if (error.message.includes('API key not valid')) {
+                        displayError = '錯誤：API金鑰無效，請檢查設定。';
+                    } else if (error.message.includes('permission') || error.message.includes('denied')) {
+                        displayError = '錯誤：權限不足。請檢查是否已啟用 Places API (New) 並設定 HTTP 參照位址。';
+                    } else {
+                        displayError = `錯誤：${error.message}`;
+                    }
+                    fetchStatus.textContent = displayError;
                 } finally {
-                   setTimeout(() => fetchStatus.textContent = '', 5000);
+                   setTimeout(() => fetchStatus.textContent = '', 8000);
                    fetchRestaurantsButton.disabled = false;
                 }
             }, (error) => {
@@ -356,13 +408,11 @@
         
         function handleSpinAgain() {
             hideResult();
-            // 等待視窗關閉動畫結束後再開始旋轉
             setTimeout(spin, 400); 
         }
 
         function handleEditOptions() {
             hideResult();
-            // 等待視窗關閉動畫結束後再捲動並聚焦
             setTimeout(() => {
                 optionsEditor.scrollIntoView({ behavior: 'smooth' });
                 optionInput.focus();
