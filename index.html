@@ -1,0 +1,389 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>今天吃什麼？喝什麼？選擇障礙救星美食抽獎輪盤</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;700&display=swap" rel="stylesheet">
+    <style>
+        /* 使用 Noto Sans TC 字體 */
+        body {
+            font-family: 'Noto Sans TC', sans-serif;
+        }
+
+        /* 輪盤容器的陰影效果 */
+        .wheel-container::before {
+            content: '';
+            position: absolute;
+            width: 98%;
+            height: 98%;
+            top: 1%;
+            left: 1%;
+            background-color: rgba(0,0,0,0.1);
+            border-radius: 50%;
+            filter: blur(10px);
+            z-index: -1;
+        }
+
+        /* 輪盤旋轉動畫 */
+        #wheelCanvas {
+            transition: transform 6s cubic-bezier(0.2, 0.8, 0.2, 1);
+        }
+
+        /* 指針的樣式 */
+        .pointer {
+            width: 0;
+            height: 0;
+            border-left: 20px solid transparent;
+            border-right: 20px solid transparent;
+            border-top: 50px solid #ef4444; /* 指針顏色 */
+            position: absolute;
+            top: -20px;
+            left: 50%;
+            transform: translateX(-50%);
+            z-index: 10;
+            filter: drop-shadow(0 -3px 2px rgba(0,0,0,0.3));
+        }
+
+        /* 按鈕禁用時的樣式 */
+        #spinButton:disabled, #fetchRestaurantsButton:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+            background-color: #9ca3af;
+        }
+        
+        /* 結果彈出視窗的動畫 */
+        .modal-enter {
+            opacity: 0;
+            transform: scale(0.9);
+        }
+        .modal-enter-active {
+            opacity: 1;
+            transform: scale(1);
+            transition: all 0.3s cubic-bezier(0.2, 0.8, 0.2, 1);
+        }
+        .modal-leave-active {
+            opacity: 0;
+            transform: scale(0.9);
+            transition: all 0.3s cubic-bezier(0.2, 0.8, 0.2, 1);
+        }
+
+        /* 讓頁面可以滾動 */
+        html, body {
+            height: auto;
+        }
+    </style>
+</head>
+<body class="bg-gray-100 flex flex-col items-center min-h-screen antialiased py-12">
+
+    <div class="text-center mb-8">
+        <h1 class="text-4xl md:text-5xl font-bold text-gray-800">今天吃什麼？喝什麼？</h1>
+        <p class="text-gray-500 mt-2">解決你的選擇困難！</p>
+    </div>
+
+    <!-- 輪盤和指針容器 -->
+    <div class="relative w-[320px] h-[320px] sm:w-[450px] sm:h-[450px] md:w-[500px] md:h-[500px] wheel-container flex justify-center items-center">
+        <div class="pointer"></div>
+        <canvas id="wheelCanvas" width="500" height="500" class="rounded-full"></canvas>
+    </div>
+
+    <!-- 抽獎按鈕 -->
+    <button id="spinButton" class="mt-12 bg-rose-500 text-white font-bold py-4 px-10 rounded-full text-xl shadow-lg hover:bg-rose-600 active:scale-95 transform transition-all duration-150 ease-in-out">
+        開始抽獎
+    </button>
+    
+    <!-- 選項編輯區塊 -->
+    <div id="optionsEditor" class="mt-10 bg-white p-6 rounded-xl shadow-md w-11/12 max-w-lg mb-12">
+        <h3 class="font-bold text-lg text-gray-700 mb-3">編輯輪盤選項</h3>
+        <div class="flex gap-2">
+            <input type="text" id="optionInput" placeholder="輸入新的美食或餐廳..." class="flex-grow p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-rose-400 focus:outline-none transition">
+            <button id="addOptionButton" class="bg-gray-800 text-white font-bold py-3 px-6 rounded-lg hover:bg-gray-900 transition-colors">新增</button>
+        </div>
+         <div class="mt-4">
+            <button id="fetchRestaurantsButton" class="w-full flex justify-center items-center gap-2 bg-blue-500 text-white font-bold py-3 px-6 rounded-lg hover:bg-blue-600 transition-colors">
+                <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z"></path><circle cx="12" cy="10" r="3"></circle></svg>
+                讀取附近餐廳
+            </button>
+            <p id="fetchStatus" class="text-sm text-gray-500 mt-2 text-center h-5"></p>
+        </div>
+        <div id="optionsList" class="mt-4 flex flex-wrap gap-2">
+            <!-- 選項標籤會動態生成在這裡 -->
+        </div>
+    </div>
+
+
+    <!-- 結果彈出視窗 -->
+    <div id="resultModal" class="fixed inset-0 bg-black bg-opacity-50 flex justify-center items-center z-50 hidden">
+        <div id="modalContent" class="bg-white rounded-2xl shadow-2xl p-8 text-center w-11/12 max-w-sm transform modal-enter">
+            <p class="text-gray-500 text-lg">今天就決定吃...</p>
+            <h2 id="resultText" class="text-5xl font-bold my-4 text-rose-500"></h2>
+            <div class="mt-6 flex flex-col gap-3">
+                <button id="spinAgainButton" class="w-full bg-rose-500 text-white font-bold py-3 px-6 rounded-full hover:bg-rose-600 transition-colors">再抽一次！</button>
+                <button id="editOptionsButton" class="w-full bg-gray-200 text-gray-800 font-bold py-3 px-6 rounded-full hover:bg-gray-300 transition-colors">我不想吃這個</button>
+            </div>
+            <button id="closeModalButton" class="mt-4 text-sm text-gray-500 hover:text-gray-700">關閉</button>
+        </div>
+    </div>
+
+
+    <script>
+        // --- Google Maps API 金鑰設定 ---
+        // 請將 'YOUR_GOOGLE_MAPS_API_KEY_HERE' 替換成您自己的 Google Maps API 金鑰
+        const apiKey = 'AIzaSyBLUs7HoxweZ69_ed1gsCbXI_31h6RZ_QM';
+        // ---------------------------------
+
+
+        // --- 預設的選項清單！ ---
+        let options = [
+            "珍珠奶茶", "牛肉麵", "小籠包", "滷肉飯", 
+            "鹹酥雞", "臭豆腐", "蚵仔煎", "麻辣火鍋"
+        ];
+        // ------------------------
+
+        // 取得所有需要的 HTML 元素
+        const canvas = document.getElementById('wheelCanvas');
+        const ctx = canvas.getContext('2d');
+        const spinButton = document.getElementById('spinButton');
+        const resultModal = document.getElementById('resultModal');
+        const modalContent = document.getElementById('modalContent');
+        const resultText = document.getElementById('resultText');
+        const closeModalButton = document.getElementById('closeModalButton');
+        const optionInput = document.getElementById('optionInput');
+        const addOptionButton = document.getElementById('addOptionButton');
+        const optionsList = document.getElementById('optionsList');
+        const fetchRestaurantsButton = document.getElementById('fetchRestaurantsButton');
+        const fetchStatus = document.getElementById('fetchStatus');
+        const spinAgainButton = document.getElementById('spinAgainButton');
+        const editOptionsButton = document.getElementById('editOptionsButton');
+        const optionsEditor = document.getElementById('optionsEditor');
+
+        const colors = ["#fecaca", "#fed7aa", "#fef08a", "#d9f99d", "#a7f3d0", "#a5f3fc", "#a5b4fc", "#d8b4fe", "#f9a8d4", "#fecdd3", "#e5e7eb", "#d1d5db"];
+        let currentRotation = 0;
+        let isSpinning = false;
+        let pieAngle;
+
+        function renderOptionsList() {
+            optionsList.innerHTML = '';
+            if (options.length === 0) {
+                const emptyText = document.createElement('p');
+                emptyText.textContent = "請新增至少2個選項才能開始抽獎喔！";
+                emptyText.className = "text-gray-500 text-sm w-full text-center";
+                optionsList.appendChild(emptyText);
+            } else {
+                options.forEach((option, index) => {
+                    const tag = document.createElement('div');
+                    tag.className = "flex items-center bg-gray-200 text-gray-700 text-sm font-medium pl-3 pr-2 py-1 rounded-full";
+                    tag.innerHTML = `<span>${option}</span><button data-index="${index}" class="remove-option-btn ml-2 text-gray-500 hover:text-red-500">&times;</button>`;
+                    optionsList.appendChild(tag);
+                });
+            }
+            document.querySelectorAll('.remove-option-btn').forEach(button => button.addEventListener('click', removeOption));
+        }
+        
+        function removeOption(e) {
+            const indexToRemove = parseInt(e.target.dataset.index, 10);
+            options.splice(indexToRemove, 1);
+            updateWheel();
+        }
+
+        function addOption() {
+            const newOption = optionInput.value.trim();
+            if (newOption && !options.includes(newOption)) {
+                options.push(newOption);
+                optionInput.value = '';
+                updateWheel();
+            }
+            optionInput.focus();
+        }
+
+        function resizeCanvas() {
+            const container = document.querySelector('.wheel-container');
+            const size = Math.min(container.clientWidth, container.clientHeight);
+            canvas.style.width = `${size}px`;
+            canvas.style.height = `${size}px`;
+        }
+
+        function drawWheel() {
+            spinButton.disabled = options.length < 2;
+            if (options.length === 0) {
+                ctx.clearRect(0, 0, canvas.width, canvas.height);
+                ctx.save();
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+                ctx.fillStyle = '#9ca3af';
+                ctx.font = "20px 'Noto Sans TC', sans-serif";
+                ctx.fillText('請新增選項', canvas.width / 2, canvas.height / 2);
+                ctx.restore();
+                return;
+            }
+            
+            pieAngle = 2 * Math.PI / options.length;
+            const centerX = canvas.width / 2;
+            const centerY = canvas.height / 2;
+            const radius = canvas.width / 2 - 5; 
+
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            ctx.font = `bold ${options.length > 12 ? '14px' : '20px'} 'Noto Sans TC', sans-serif`;
+
+            options.forEach((option, i) => {
+                const angle = i * pieAngle;
+                ctx.beginPath();
+                ctx.fillStyle = colors[i % colors.length];
+                ctx.moveTo(centerX, centerY);
+                ctx.arc(centerX, centerY, radius, angle, angle + pieAngle);
+                ctx.closePath();
+                ctx.fill();
+                ctx.strokeStyle = '#fff'; 
+                ctx.lineWidth = 4;
+                ctx.stroke();
+
+                ctx.save();
+                ctx.fillStyle = "#4b5563"; 
+                const textAngle = angle + pieAngle / 2;
+                ctx.translate(centerX + (radius / 1.5) * Math.cos(textAngle), centerY + (radius / 1.5) * Math.sin(textAngle));
+                ctx.rotate(textAngle + Math.PI / 2);
+                ctx.textAlign = "center";
+                ctx.fillText(option, 0, 0);
+                ctx.restore();
+            });
+        }
+        
+        function updateWheel() {
+            drawWheel();
+            renderOptionsList();
+        }
+
+        function showResult(winner) {
+            resultText.textContent = winner;
+            resultModal.classList.remove('hidden');
+            requestAnimationFrame(() => modalContent.classList.add('modal-enter-active'));
+        }
+
+        function hideResult() {
+            modalContent.classList.add('modal-leave-active');
+            modalContent.classList.remove('modal-enter-active');
+            setTimeout(() => {
+                 resultModal.classList.add('hidden');
+                 modalContent.classList.remove('modal-leave-active');
+            }, 300);
+        }
+
+        function spin() {
+            if (isSpinning || options.length < 2) return;
+            isSpinning = true;
+            spinButton.disabled = true;
+            fetchRestaurantsButton.disabled = true;
+
+            const randomExtraRotation = Math.random() * 360; 
+            const totalRotation = 360 * 6 + randomExtraRotation; 
+            currentRotation += totalRotation;
+            canvas.style.transform = `rotate(${currentRotation}deg)`;
+
+            setTimeout(() => {
+                const finalAngle = currentRotation % 360;
+                const normalizedAngle = (360 - finalAngle + 90) % 360;
+                const selectedIndex = Math.floor(normalizedAngle / (360 / options.length));
+                const winner = options[selectedIndex];
+                showResult(winner);
+                isSpinning = false;
+                spinButton.disabled = false;
+                fetchRestaurantsButton.disabled = false;
+            }, 6000); 
+        }
+
+        async function fetchNearbyRestaurants() {
+            if (!apiKey || apiKey === 'YOUR_GOOGLE_MAPS_API_KEY_HERE') {
+                fetchStatus.textContent = '錯誤：請先在程式碼中設定 API 金鑰。';
+                return;
+            }
+
+            if (!("geolocation" in navigator)) {
+                fetchStatus.textContent = '錯誤：您的瀏覽器不支援定位功能。';
+                return;
+            }
+
+            fetchStatus.textContent = '正在取得您的位置...';
+            fetchRestaurantsButton.disabled = true;
+
+            navigator.geolocation.getCurrentPosition(async (position) => {
+                const { latitude, longitude } = position.coords;
+                fetchStatus.textContent = '正在尋找附近的餐廳...';
+                
+                const url = `https://maps.googleapis.com/maps/api/place/nearbysearch/json?location=${latitude},${longitude}&radius=500&type=restaurant&language=zh-TW&key=${apiKey}`;
+                const proxyUrl = `https://api.allorigins.win/get?url=${encodeURIComponent(url)}`;
+
+                try {
+                    const response = await fetch(proxyUrl);
+                    const data = await response.json();
+                    const placesData = JSON.parse(data.contents);
+
+                    if (placesData.status === 'OK') {
+                        const newOptions = placesData.results.map(place => place.name);
+                        let addedCount = 0;
+                        newOptions.forEach(opt => {
+                            if (!options.includes(opt)) {
+                                options.push(opt);
+                                addedCount++;
+                            }
+                        });
+                        updateWheel();
+                        fetchStatus.textContent = `成功加入 ${addedCount} 間餐廳！`;
+                    } else {
+                        fetchStatus.textContent = `錯誤 (${placesData.status})：${placesData.error_message || '請檢查 API 金鑰設定'}`;
+                    }
+                } catch (error) {
+                    console.error('Fetch error:', error);
+                    fetchStatus.textContent = '發生網路錯誤，請稍後再試。';
+                } finally {
+                   setTimeout(() => fetchStatus.textContent = '', 5000);
+                   fetchRestaurantsButton.disabled = false;
+                }
+            }, (error) => {
+                let message = '';
+                switch (error.code) {
+                    case error.PERMISSION_DENIED: message = "錯誤：您已拒絕位置資訊存取權限。"; break;
+                    case error.POSITION_UNAVAILABLE: message = "錯誤：無法取得您的位置資訊。"; break;
+                    case error.TIMEOUT: message = "錯誤：取得位置資訊超時。"; break;
+                    default: message = "發生未知錯誤。"; break;
+                }
+                fetchStatus.textContent = message;
+                fetchRestaurantsButton.disabled = false;
+            });
+        }
+        
+        function handleSpinAgain() {
+            hideResult();
+            // 等待視窗關閉動畫結束後再開始旋轉
+            setTimeout(spin, 400); 
+        }
+
+        function handleEditOptions() {
+            hideResult();
+            // 等待視窗關閉動畫結束後再捲動並聚焦
+            setTimeout(() => {
+                optionsEditor.scrollIntoView({ behavior: 'smooth' });
+                optionInput.focus();
+            }, 300);
+        }
+
+        // 初始設定與事件監聽
+        spinButton.addEventListener('click', spin);
+        closeModalButton.addEventListener('click', hideResult);
+        resultModal.addEventListener('click', (e) => { if (e.target === resultModal) hideResult(); });
+        addOptionButton.addEventListener('click', addOption);
+        optionInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') addOption(); });
+        fetchRestaurantsButton.addEventListener('click', fetchNearbyRestaurants);
+        spinAgainButton.addEventListener('click', handleSpinAgain);
+        editOptionsButton.addEventListener('click', handleEditOptions);
+        window.addEventListener('resize', () => { resizeCanvas(); drawWheel(); });
+
+        // 第一次載入時初始化
+        resizeCanvas();
+        updateWheel();
+
+    </script>
+</body>
+</html>
